@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>STM32 CAM Viewer</title>
+    <style>
+        img { max-width: 80%; margin: 20px; border: 2px solid #333; }
+    </style>
+</head>
+<body>
+    <img id="frame" src="" alt="Live Frame">
+    <script>
+        const address = 'ws://xxx:3009'
+        const ws = new WebSocket(address);
+        const frameImg = document.getElementById('frame');
+
+        ws.onmessage = (event) => {
+            console.log('Received frame data:', event.data);
+            const blob = new Blob([event.data], { type: 'image/jpeg' });
+            frameImg.src = URL.createObjectURL(blob);
+        };
+    </script>
+</body>
+</html>
