@@ -76,7 +76,7 @@ const app = express();
 app.use(cors());
 // step4: 嵌入前端
 app.get('/',(req,res)=>{
-    res.sendFile(path.resolve("../index.html"))        //设置/ 下访问文件位置
+    res.sendFile(path.resolve("./index.html"))        //设置/ 下访问文件位置
 });
 app.listen(FRONT_PORT, () => {
     console.log(`Server listening on ${HOST}:${FRONT_PORT}`);

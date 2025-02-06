@@ -20,6 +20,57 @@
 #include "sdkconfig.h"
 #include "camera_index.h"
 
+
+#include <lwip/sockets.h>
+#define LED_LEDC_CHANNEL 2 //Using different ledc channel/timer than camera
+// 服务器配置
+const char *server_ip = ""; // 替换为你的 Node.js 服务器 IP
+const int server_port = 3008;           // 替换为你的 Node.js 服务器端口
+
+struct UploadParams {
+    uint8_t *buf;
+    size_t len;
+};
+
+// 定义帧上传任务
+void uploadFrameToServer(uint8_t *frame, size_t frame_len) {
+    int sockfd;
+    struct sockaddr_in server_addr;
+    // 创建 Socket
+    if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        ESP_LOGE("SOCKET", "Socket creation error");
+         Serial.print("Socket creation error");
+        return;
+    }
+
+    // 配置服务器地址
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(server_port);
+    if (inet_pton(AF_INET, server_ip, &server_addr.sin_addr) <= 0) {
+        ESP_LOGE("SOCKET", "Invalid address / Address not supported");
+        Serial.print("Invalid address / Address not supported");
+        return;
+    }
+
+    // 连接到服务器
+    if (connect(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+        ESP_LOGE("SOCKET", "Connection failed");
+        Serial.print(" connect error ");
+        return;
+    }
+
+    // 发送帧数据
+    if (send(sockfd, frame, frame_len, 0) < 0) {
+        ESP_LOGE("SOCKET", "Frame send failed");
+    } else {
+        ESP_LOGI("SOCKET", "Frame sent successfully");
+    }
+
+    // 关闭 Socket
+    close(sockfd);
+}
+
+
 #if defined(ARDUINO_ARCH_ESP32) && defined(CONFIG_ARDUHAL_ESP_LOG)
 #include "esp32-hal-log.h"
 #endif
@@ -266,6 +317,41 @@ static esp_err_t stream_handler(httpd_req_t *req) {
     if (res == ESP_OK) {
       res = httpd_resp_send_chunk(req, (const char *)_jpg_buf, _jpg_buf_len);
     }
+    
+// ================ 新增上传代码 ================
+if (res == ESP_OK && _jpg_buf != NULL && _jpg_buf_len > 0) {
+    // 深拷贝帧数据
+    uint8_t *upload_buf = (uint8_t*)malloc(_jpg_buf_len);
+    if (upload_buf) {
+        memcpy(upload_buf, _jpg_buf, _jpg_buf_len);
+        
+        // 创建参数结构体
+        UploadParams *params = (UploadParams*)malloc(sizeof(UploadParams));
+        params->buf = upload_buf;
+        params->len = _jpg_buf_len;
+        
+        // 创建异步上传任务
+        xTaskCreatePinnedToCore(
+            [](void *param) {
+                UploadParams *p = (UploadParams*)param;
+                uploadFrameToServer(p->buf, p->len);
+                free(p->buf); // 释放缓冲区
+                free(p);      // 释放参数结构体
+                vTaskDelete(NULL);
+            },
+            "frame_upload",
+            8192,       // 堆栈大小
+            params,     // 传递参数结构体
+            9999,          // 优先级（高于主循环）
+            NULL, 
+            PRO_CPU_NUM // 运行在PRO核心
+        );
+    } else {
+        log_e("Malloc for upload buffer failed!");
+    }
+    
+    delay(100);
+}
     if (fb) {
       esp_camera_fb_return(fb);
       fb = NULL;
@@ -843,9 +929,10 @@ void startCameraServer() {
 }
 
 void setupLedFlash(int pin) {
-#if CONFIG_LED_ILLUMINATOR_ENABLED
-  ledcAttach(pin, 5000, 8);
-#else
-  log_i("LED flash is disabled -> CONFIG_LED_ILLUMINATOR_ENABLED = 0");
-#endif
+  #if CONFIG_LED_ILLUMINATOR_ENABLED
+    ledcSetup(LED_LEDC_CHANNEL, 5000, 8);
+    ledcAttachPin(pin, LED_LEDC_CHANNEL);
+    #else
+    log_i("LED flash is disabled -> CONFIG_LED_ILLUMINATOR_ENABLED = 0");
+    #endif
 }
