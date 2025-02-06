@@ -12,7 +12,7 @@
 
 
 
-<video src="./static/record.mp4"></video>
+<video src="./static/record.mp4"/>
 
 ## esp32转发到node服务
 
